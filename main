@@ -1,0 +1,137 @@
+#!/usr/bin/env ruby
+
+require 'sinatra'
+require 'sinatra-websocket'
+require 'filewatcher'
+
+set :port, 8080
+set :bind, '0.0.0.0'
+set :logging, false
+
+Signal.trap("SIGTERM") do
+	puts("Stopping webservice, exiting...")
+	exit
+end
+
+SERVERS_FOLDER = "/home/mcadmin/servers"
+SERVERS = Dir.entries(SERVERS_FOLDER) - [".", ".."]
+
+def server_running?(server)
+	if not SERVERS.include?(server) then
+		return false
+	end
+	File.exists?("#{SERVERS_FOLDER}/#{server}/running")
+end
+
+def start_server(ws, server)
+	if not SERVERS.include?(server) then
+		ws.send("Unknown server #{server}")
+		return
+	end
+
+	running_servers = SERVERS.select{server_running?(_1)}
+	if not running_servers.empty? then
+		ws.send("Servers #{running_servers} already running, stop it first")
+		return
+	end
+
+	`#{SERVERS_FOLDER}/#{server}/start.sh`
+end
+
+def stop_server(ws, server)
+	if not SERVERS.include?(server) then
+		ws.send("Unknown server #{server}")
+		return
+	end
+
+	running_servers = SERVERS.select{server_running?(_1)}
+	if not running_servers.include?(server) then
+		ws.send("Server #{server} is not running, can't stop it")
+		return
+	end
+
+	`#{SERVERS_FOLDER}/#{server}/stop.sh`
+end
+
+def command(ws, msg)
+	cmd, *args = msg.split(" ")
+	if cmd == "shutdown" then
+		SERVERS.each do |server|
+			if server_running?(server) then
+				stop_server(ws, server)
+			end
+		end
+
+		Thread.new do
+			ws.send("Scheduling shutdown in 30 seconds")
+			6.times do |i|
+				sleep 5
+			end
+
+			ws.send("Shutting down")
+			sleep 1
+			`sudo poweroff`
+		end
+	elsif cmd == "start" then
+		if args.size != 1 then
+			ws.send("Internal error: Expected 1 arg, got #{args.size}")
+			return
+		end
+		start_server(ws, args[0])
+	elsif cmd == "stop" then
+		if args.size != 1 then
+			ws.send("Internal error: Expected 1 arg, got #{args.size}")
+			return
+		end
+		stop_server(ws, args[0])
+	else
+		ws.send("Internal error: Unknown command #{msg}")
+	end
+end
+
+sockets = []
+
+log = ""
+SERVERS.each do |server|
+	if log.empty? and server_running?(server) then
+		log = File.read("#{SERVERS_FOLDER}/#{server}/logs/latest.log")
+	end
+end
+
+Thread.new do
+	Filewatcher.new("#{SERVERS_FOLDER}/*/logs/latest.log").watch do |changes|
+		filename, _ = changes.first
+		if not File.exists?(filename) then
+			return
+		end
+
+		log = File.read(filename)
+		sockets.each do |ws|
+			ws.send(log)
+		end
+	end
+end
+
+get "/" do
+	if request.websocket? then
+		request.websocket do |ws|
+			sockets << ws
+
+			ws.onopen do
+				ws.send(log)
+			end
+			ws.onmessage do |msg|
+				command(ws, msg)
+			end
+			ws.onclose do
+				sockets.delete(ws)
+			end
+		end
+	else
+		redirect "/index.html"
+	end
+end
+
+get "/:server/running" do |server|
+	server_running?(server).to_s
+end

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<style>
+body, table {
+	color: #000000;
+	font-size: 14pt;
+	font-family: Verdana, Arial, Helvetica;
+}
+pre {
+	color: #000000;
+	font-size: 12pt;
+	font-family: Verdana, Arial, Helvetica;
+	white-space: pre-wrap;
+	white-space: -moz-pre-wrap;
+	white-space: -pre-wrap;
+	white-space: -o-pre-wrap;
+	word-wrap: break-word;
+}
+h6, h5, h4, h3, h2, h1 {
+	color: #000000;
+	font-size: 16pt;
+	font-family: Verdana, Arial, Helvetica;
+}
+.menu a {
+	text-decoration: none;
+	color: #000000;
+	background: transparent;
+}
+a { color: #000000; background: transparent; }
+a:hover { color: #AFD72B; }
+.active { border-color:#AFD72B !important; }
+.pushButton {
+	background-color:#FFF;
+	-moz-border-radius:28px;
+	-webkit-border-radius:28px;
+	border-radius:28px;
+	border:3px solid #3CC063;
+	display:inline-block;
+	cursor:pointer;
+	font-size:17px;
+	padding:4px 31px;
+	text-decoration:none;
+}
+.pushButton:hover { color: #000000 !important; border-color:#AFD72B; }
+.pushButton:active { position:relative; top:1px; }
+hr {
+	color: #629093;
+	height: 1px;
+	margin: 0px;
+	padding: 0px;
+}
+input, select {
+	color: #000000;
+	font-family: Verdana, Arial, Helvetica;
+	font-size: 12pt;
+	border-width: 1px;
+	border-style: solid;
+	border-color: #DDDDDD;
+}
+textarea {
+	color: #000000;
+	font-family: Courier New;
+	font-size: 13pt;
+	border-width: 1px;
+	border-style: solid;
+	border-color: #DDDDDD;
+}
+.box { background-color: #FFFFFF; }
+ul {
+	list-style-type: none;
+	margin: 0;
+	padding: 0;
+	padding-bottom: 15px;
+}
+li { display: inline; padding-right: 10px; }
+		</style>
+		<script>
+			// Internal functions
+
+			function on_ready(fn) {
+				if (document.readyState === "complete" || document.readyState === "interactive") {
+					setTimeout(fn, 1);
+				} else {
+					document.addEventListener("DOMContentLoaded", fn);
+				}
+			}
+
+			function get(path, fn) {
+				fetch("http://" + window.location.host + "/" + path)
+					.then((response) => response.json())
+					.then((json) => fn(json));
+			}
+
+			function do_soon(fn) {
+				setTimeout(fn, 1000);
+			}
+
+			// End of internal functions
+			// Websocket functions
+
+			const socket = new WebSocket("ws://" + window.location.host);
+
+			socket.addEventListener("message", (event) => {
+				const log = document.getElementById("log_field");
+				if (event.data.charAt(0) == "[") {
+					log.textContent = event.data;
+					if (event.data.slice(-1) != "\n") {
+						log.append("\n");
+					}
+				} else if (event.data.length > 0) {
+					alert(event.data);
+				}
+			});
+
+			function start(server) {
+				const log = document.getElementById("log_field");
+				log.textContent = "";
+
+				socket.send("start " + server);
+				do_soon(function() { check_server_status(); });
+			}
+
+			function stop(server) {
+				socket.send("stop " + server);
+				do_soon(function() { check_server_status(); });
+			}
+
+			function shutdown() {
+				socket.send("shutdown");
+			}
+
+			// End of websocket functions
+			// Check state of servers
+
+			SERVERS = ["vanilla-1.19", "vanilla-1.20", "create"]
+
+			function check_server_status() {
+				for (const server of SERVERS) {
+					get(server + "/running", function(res) {
+						label = document.getElementById(server + "label");
+						if (label) {
+							label.innerHTML = "Status: " + (res ? "Running 🟢" : "Stopped 🔴");
+						}
+					});
+				}
+			}
+
+			on_ready(function() {
+				check_server_status();
+				window.setInterval(function() {
+					check_server_status();
+				}, 10000);
+			});
+		</script>
+		<title>Minecraft Server</title>
+	</head>
+	<body>
+		<h1>Minecraft Server</h1>
+		<fieldset>
+			<legend>Vanilla 1.19 Server</legend>
+			<label id="vanilla-1.19label"></label>
+			<br>
+			<button onclick="start('vanilla-1.19')">Start</button>
+			<button onclick="stop('vanilla-1.19')">Stop</button>
+		</fieldset>
+		<fieldset>
+			<legend>Vanilla 1.20 Server</legend>
+			<label id="vanilla-1.20label"></label>
+			<br>
+			<button onclick="start('vanilla-1.20')">Start</button>
+			<button onclick="stop('vanilla-1.20')">Stop</button>
+		</fieldset>
+		<fieldset>
+			<legend>Create Server</legend>
+			<label id="createlabel"></label>
+			<br>
+			<button onclick="start('create')">Start</button>
+			<button onclick="stop('create')">Stop</button>
+		</fieldset>
+		<fieldset>
+			<legend>Server management</legend>
+			<button onclick="shutdown()">Shutdown</button>
+			<br><br>
+			<fieldset>
+				<legend>System logs</legend>
+				<pre id="log_field"></pre>
+			</fieldset>
+		</fieldset>
+	</body>
+</html>
